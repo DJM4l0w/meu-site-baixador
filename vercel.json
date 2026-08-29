@@ -1,7 +1,0 @@
-{
-  "rewrites": [
-    { "source": "/analisar", "destination": "/main.py" },
-    { "source": "/download-real", "destination": "/main.py" },
-    { "source": "/(.*)", "destination": "/main.py" }
-  ]
-}
