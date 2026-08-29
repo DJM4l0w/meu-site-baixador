@@ -21,7 +21,7 @@ async def read_index():
 
 @app.post("/analisar")
 async def analisar_video(url: str = Form(...)):
-    # Converte o link se for do TikTok
+    # 🚀 MOTOR 1: Sistema focado em links do TikTok usando API estável de contingência
     if "tiktok.com" in url:
         try:
             api_res = requests.get(f"https://tikwm.com{url}", timeout=10).json()
@@ -32,8 +32,22 @@ async def analisar_video(url: str = Form(...)):
                 }
         except:
             pass
-    
-    # Se for Instagram ou Facebook, extrai via metadados estruturais
+
+    # 📸 MOTOR 2: Sistema focado em Instagram usando um servidor proxy aberto alternativo (CoCobalt)
+    try:
+        payload = {"url": url, "videoQuality": "720", "downloadMode": "auto"}
+        # Usando a rota aberta oficial estável de processamento em nuvem pública
+        res = requests.post("https://wuk.sh", json=payload, headers={"Accept": "application/json", "Content-Type": "application/json"}, timeout=12).json()
+        
+        if res.get("status") == "stream":
+            return {
+                "video_url": res.get("url"),
+                "audio_url": res.get("url")
+            }
+    except:
+        pass
+
+    # 🛠️ MOTOR 3: Raspagem estrutural nativa de emergência via Regex HTML
     try:
         html = requests.get(url, headers=HEADERS, timeout=10).text
         match = re.search(r'"video_url":"(.*?)"', html) or re.search(r'property="og:video" content="(.*?)"', html)
@@ -41,7 +55,7 @@ async def analisar_video(url: str = Form(...)):
             clean_url = match.group(1).replace(r'\u002F', '/').replace("&amp;", "&")
             return {
                 "video_url": clean_url,
-                "audio_url": clean_url  # Fallback caso não ache a faixa separada
+                "audio_url": clean_url
             }
     except:
         pass
