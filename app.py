@@ -3,7 +3,6 @@ from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import requests
 import os
-import re
 
 app = FastAPI()
 
@@ -23,16 +22,17 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
     try:
-        html_path = os.path.join(os.path.dirname(__file__), "../index.html")
+        # Lê o HTML que está na mesma pasta raiz do servidor
+        html_path = os.path.join(os.path.dirname(__file__), "index.html")
         with open(html_path, "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
-        return HTMLResponse("<h3>Erro: Arquivo index.html nao encontrado!</h3>", status_code=500)
+        return HTMLResponse("<h3>Erro: Arquivo index.html nao encontrado na raiz!</h3>", status_code=500)
 
 @app.post("/analisar")
 async def analisar_video(url: str = Form(...)):
     try:
-        api_url = f"https://tikwm.com{url}" if "tiktok.com" in url else f"https://insta-downloader.net{url}"
+        api_url = f"https://tikwm.com{url}" if "tiktok.com" in url else f"https://download.online{url}"
         res = requests.get(api_url, headers=HEADERS, timeout=10).json()
         
         if "tiktok.com" in url and res.get("code") == 0:
@@ -60,7 +60,7 @@ async def baixar_midia_local(url: str = Form(...), tipo: str = Form(...)):
             if res.get("code") == 0:
                 link_direto = res["data"]["music"] if tipo == "mp3" else res["data"]["play"]
         else:
-            res = requests.get(f"https://insta-downloader.net{url}", timeout=10).json()
+            res = requests.get(f"https://download.online{url}", timeout=10).json()
             if "video_url" in res:
                 link_direto = res["video_url"]
 
