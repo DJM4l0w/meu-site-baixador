@@ -1,9 +1,9 @@
 from fastapi import FastAPI, Form, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-import yt_dlp
 import requests
 import os
+import re
 
 app = FastAPI()
 
@@ -15,15 +15,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# A Vercel exige que arquivos salvos temporariamente usem a pasta /tmp
 DOWNLOAD_DIR = "/tmp/downloads_temp"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Configurações otimizadas do yt-dlp para emular um navegador Chrome real dentro da nuvem
-YDL_OPTIONS = {
-    'quiet': True,
-    'no_warnings': True,
-    'impersonate': 'chrome',  # Burlar detecção de robôs
+# Identidade visual humana para passar pelos filtros básicos
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 }
 
 @app.get("/", response_class=HTMLResponse)
@@ -38,23 +35,24 @@ async def read_index():
 @app.post("/analisar")
 async def analisar_video(url: str = Form(...)):
     try:
-        # O próprio motor yt-dlp instalado na Vercel extrai o link direto
-        with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-            info = ydl.extract_info(url, download=False)
-            video_url = info.get('url') or (info.get('formats')[-1]['url'] if info.get('formats') else None)
-            if video_url:
-                return {"media_url": video_url}
-    except Exception as e:
-        # Se falhar, tenta uma rota alternativa via API de backup para o TikTok
+        # Rota focada em links do TikTok
         if "tiktok.com" in url:
-            try:
-                res = requests.get(f"https://tikwm.com{url}", timeout=10).json()
-                if res.get("code") == 0:
-                    return {"media_url": res["data"]["play"]}
-            except:
-                pass
-                
-    raise HTTPException(status_code=400, detail="Não foi possível extrair a prévia. Verifique se o post é público.")
+            api_res = requests.get(f"https://tikwm.com{url}", timeout=10).json()
+            if api_res.get("code") == 0:
+                return {"media_url": api_res["data"]["play"]}
+        
+        # Rota de raspagem nativa via tags meta para Instagram e Facebook
+        html = requests.get(url, headers=HEADERS, timeout=10).text
+        match = re.search(r'"video_url":"(.*?)"', html) or re.search(r'property="og:video" content="(.*?)"', html)
+        
+        if match:
+            clean_url = match.group(1).replace(r'\u002F', '/').replace("&amp;", "&")
+            return {"media_url": clean_url}
+            
+        # Player fallback
+        return {"media_url": url}
+    except:
+        return {"media_url": url}
 
 @app.post("/download-real")
 async def baixar_midia_local(url: str = Form(...), tipo: str = Form(...)):
@@ -66,46 +64,28 @@ async def baixar_midia_local(url: str = Form(...), tipo: str = Form(...)):
         try: os.remove(caminho_final)
         except: pass
 
-    # Injeta regras de download nativo do yt-dlp para a pasta /tmp da Vercel
-    ydl_opts_dl = YDL_OPTIONS.copy()
-    ydl_opts_dl['outtmpl'] = os.path.join(DOWNLOAD_DIR, 'midia_temp.%(ext)s')
-    ydl_opts_dl['format'] = 'bestaudio/best' if tipo == "mp3" else 'best[ext=mp4]/best'
-
+    link_direto = None
     try:
-        with yt_dlp.YoutubeDL(ydl_opts_dl) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename_baixado = ydl.prepare_filename(info)
-            
-            # Ajuste de detecção para extensões residuais (.m4a, .webm, etc)
-            if not os.path.exists(filename_baixado):
-                base, _ = os.path.splitext(filename_baixado)
-                for ext in ['.m4a', '.aac', '.mp3', '.mp4', '.webm']:
-                    if os.path.exists(base + ext):
-                        filename_baixado = base + ext
-                        break
-
-            if os.path.exists(filename_baixado):
-                os.rename(filename_baixado, caminho_final)
-                
-                # Entrega o arquivo pronto gerado direto no servidor da Vercel
-                return FileResponse(
-                    path=caminho_final, 
-                    filename=f"{nome_do_seu_site}.{extensao}", 
-                    media_type="application/octet-stream"
-                )
-    except:
-        # Backup alternativo via API se o yt-dlp direto falhar no TikTok
         if "tiktok.com" in url:
-            try:
-                res = requests.get(f"https://tikwm.com{url}", timeout=10).json()
-                if res.get("code") == 0:
-                    link_direto = res["data"]["music"] if tipo == "mp3" else res["data"]["play"]
-                    res_stream = requests.get(link_direto, stream=True, timeout=30)
-                    with open(caminho_final, "wb") as f:
-                        for chunk in res_stream.iter_content(chunk_size=1024*1024):
-                            if chunk: f.write(chunk)
-                    return FileResponse(path=caminho_final, filename=f"{nome_do_seu_site}.{extensao}", media_type="application/octet-stream")
-            except:
-                pass
+            res = requests.get(f"https://tikwm.com{url}", timeout=10).json()
+            if res.get("code") == 0:
+                link_direto = res["data"]["music"] if tipo == "mp3" else res["data"]["play"]
+        else:
+            html = requests.get(url, headers=HEADERS, timeout=10).text
+            match = re.search(r'"video_url":"(.*?)"', html) or re.search(r'property="og:video" content="(.*?)"', html)
+            if match:
+                link_direto = match.group(1).replace(r'\u002F', '/').replace("&amp;", "&")
 
-    raise HTTPException(status_code=400, detail="Mídia protegida ou limite de tráfego excedido na rede social.")
+        if link_direto:
+            # Baixa o fluxo do arquivo na pasta temporária /tmp da Vercel
+            res_stream = requests.get(link_direto, headers=HEADERS, stream=True, timeout=45)
+            with open(caminho_final, "wb") as f:
+                for chunk in res_stream.iter_content(chunk_size=1024*1024):
+                    if chunk: f.write(chunk)
+            
+            # Entrega para o usuário com o nome customizado
+            return FileResponse(path=caminho_final, filename=f"{nome_do_seu_site}.{extensao}", media_type="application/octet-stream")
+    except:
+        pass
+
+    raise HTTPException(status_code=400, detail="Mídia temporariamente protegida ou indisponível.")
