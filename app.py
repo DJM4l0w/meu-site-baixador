@@ -4,7 +4,7 @@ import requests
 
 app = FastAPI()
 
-# Abre o arquivo HTML que está na mesma pasta raiz do servidor
+# Abre o arquivo HTML que está na mesma pasta raiz do servidors
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
     try:
